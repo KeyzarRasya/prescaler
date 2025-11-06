@@ -1,3 +1,4 @@
-*/build
-*/.vscode
+prescal/build
+prescal/.vscode
 prescal/.env
+traffic/build
