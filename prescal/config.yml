@@ -1,0 +1,6 @@
+port: 80
+entry: localhost:90
+forwards:
+  - localhost:3000
+  - localhost:3001
+  - localhost:3002
