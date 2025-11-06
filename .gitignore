@@ -1,4 +1,5 @@
-prescal/build
+dashboard/node_modules
+prescal/build/
 prescal/.vscode
 prescal/.env
 traffic/build
