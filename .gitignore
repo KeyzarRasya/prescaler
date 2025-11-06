@@ -2,4 +2,6 @@ dashboard/node_modules
 prescal/build/
 prescal/.vscode
 prescal/.env
+prescal/test
 traffic/build
+event/.env
