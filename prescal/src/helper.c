@@ -29,21 +29,39 @@ int split_equal(const char *input, char **left, char **right) {
     return 0;
 }
 
-int read_env(const char *to_search, char *dest) {
+int read_env(const char *to_search, char *dest, size_t dest_size) {
     FILE *fptr;
     char buffer[256];
+    const char *home = getenv("HOME");
+    char env_path[512];
 
-    fptr = fopen("../.env", "r");
+    if (!home) {
+        fprintf(stderr, "HOME not set.\n");
+        return -1;
+    }
+
+    snprintf(env_path, sizeof(env_path), "%s/.prescal/.env", home);
+
+    fptr = fopen(env_path, "r");
     if (fptr == NULL) {
         perror("ERR");
         return -1;
     }
 
     while (fgets(buffer, sizeof(buffer), fptr)) {
-        char *key, *value;
-        split_equal(buffer, &key, &value);
+        buffer[strcspn(buffer, "\r\n")] = 0;
+
+        char *equal = strchr(buffer, '=');
+        if (!equal) continue;
+
+        *equal = '\0';
+        const char *key = buffer;
+        const char *value = equal + 1;
+
         if (strcmp(to_search, key) == 0) {
-            strcpy(dest, value);
+            strncpy(dest, value, dest_size - 1);
+            dest[dest_size - 1] = '\0';
+            fclose(fptr);
             return 1;
         }
     }
