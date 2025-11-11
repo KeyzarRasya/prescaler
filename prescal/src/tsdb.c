@@ -46,50 +46,61 @@ int tsdb_connect(struct timeseries_db *tsdb) {
 
 void tsdb_write(struct timeseries_db *tsdb, char *payload, size_t size) {
     char token[256];
-    read_env("TSDB_TOKEN", token);
+    char host[126];
+    read_env("TSDB_TOKEN", token, sizeof(token));
+    read_env("TSDB_HOST", host, sizeof(host));
+
     char request[2048];
     printf("PAYLOAD: %s\n", payload);
 
-    int len = snprintf(request, sizeof(request),
-        "POST /api/v2/write?bucket=prescal&precision=s HTTP/1.1\r\n"
-        "Host: localhost:8181\r\n"
+    snprintf(request, sizeof(request),
+        "POST /api/v2/write?org=docs&bucket=prescal&precision=s HTTP/1.1\r\n"
+        "Host: %s\r\n"
         "Authorization: Token %s\r\n"
         "Content-Type: text/plain; charset=utf-8\r\n"
         "Content-Length: %zu\r\n"
-        "Connection: keep-alive\r\n"
+        "Connection: close\r\n"
         "\r\n"
         "%s",
-        token, size, payload);
+        host, token, strlen(payload), payload);
 
-    // Send only the bytes actually written by snprintf
-    if (send(tsdb->fd, request, len, 0) < 0) {
-        perror("send tsdb_write\n");
+    if (send(tsdb->fd, request, strlen(request), 0) < 0) {
+        perror("send tsdb_write");
         return;
     }
 
-    // Optionally, read response (non-blocking or timeout)
     char buffer[512];
     int bytes = recv(tsdb->fd, buffer, sizeof(buffer) - 1, MSG_DONTWAIT);
     if (bytes > 0) {
         buffer[bytes] = '\0';
+        printf("Response: %s\n", buffer);
     }
 }
 
 
 void tsdb_read(struct timeseries_db *tsdb) {
     struct sockaddr_in db_server;
-    char request[2048], buffer[4096], token[256];
-    read_env("TSDB_TOKEN", token);
+    char request[2048], buffer[4096], token[256], host[126];
+    read_env("TSDB_TOKEN", token, sizeof(token));
+    read_env("TSDB_HOST", host, sizeof(host));
+
+    const char *body =
+        "{\"query\":\"from(bucket: \\\"prescal\\\") |> range(start: -1h) |> "
+        "filter(fn: (r) => r._measurement == \\\"server\\\") |> "
+        "pivot(rowKey:[\\\"_time\\\"], columnKey:[\\\"_field\\\"], valueColumn:\\\"_value\\\")\"}";
+
+    int body_len = strlen(body);
 
     snprintf(request, sizeof(request),
-        "GET /api/v3/query_sql?db=prescal&q=SELECT%%20*%%20FROM%%20server HTTP/1.0\r\n"
-        "Host: localhost:8181\r\n"
+        "POST /api/v2/query?org=docs HTTP/1.0\r\n"
+        "Host: %s\r\n"
         "Authorization: Token %s\r\n"
-        "Accept: */*\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: %d\r\n"
         "Connection: close\r\n"
-        "\r\n",
-        token
-    );
+        "\r\n"
+        "%s",
+        host, token, body_len, body);
 
     if (send(tsdb->fd, request, strlen(request), 0) < 0) {
         perror("send");
