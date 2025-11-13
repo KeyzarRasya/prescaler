@@ -40,7 +40,7 @@ double cpu_t0;
 void *request_per_second(void *arg) {
     struct thread_arg *targ = (struct thread_arg *)arg;
     int port = targ->port;
-    struct timeseries_db *tsdb = init_tsdb(8181);
+    struct timeseries_db *tsdb = init_tsdb(8086);
     if (tsdb_connect(tsdb) != CONN_SUCCESS) {
         perror("tsdb start");
         return NULL;
