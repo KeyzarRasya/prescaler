@@ -146,20 +146,17 @@ void write_metrics(FILE *file, struct metrics *metrics, int rps) {
 }
 
 void write_metrics_db(struct timeseries_db *tsdb, struct metrics *metrics) {
-    time_t now = time(NULL);
-    long long ts = (long long)now * 1000000000LL;  // convert to nanoseconds
     char payloads[512];
 
     snprintf(payloads, sizeof(payloads),
-             "%s,port=%d rps=%di,cpu=%.2f %lld",
+             "%s,port=%d rps=%di,cpu=%.2f",
              tsdb->table,
              metrics->port,
              metrics->rps,
-             metrics->cpu_usage,
-             ts);
-
+             metrics->cpu_usage);
     tsdb_write(tsdb, payloads, strlen(payloads));
 }
+
 
 
 void copy_string(const char *src, char *dest, size_t size) {
