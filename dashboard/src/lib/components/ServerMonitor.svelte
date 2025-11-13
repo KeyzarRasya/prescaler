@@ -1,11 +1,14 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { env as publicEnv } from '$env/dynamic/public';
+  import { env as privateEnv } from '$env/dynamic/private';
   
   // Configuration
-  const API_URL = 'http://localhost:8181/api/v3/query_sql?db=prescal&q=SELECT%20*%20FROM%20server';
-  const TOKEN = 'apiv3_eP6utLFp34y1vIRfo65CN5rD05DC2zZ7A068SvMtQ03-QkBtsLpIM7sX-FQaK_CU8gJSyKr2AEEH-nhMUW-VBQ';
-  const REFRESH_INTERVAL = 1000; // 1 second
-  const MAX_DATA_POINTS = 50; // Keep last 50 data points per port
+  const API_URL = publicEnv.PUBLIC_API_URL;
+  const TOKEN = privateEnv.TOKEN;
+  const REFRESH_INTERVAL = Number(publicEnv.PUBLIC_REFRESH_INTERVAL || 1000);
+  const MAX_DATA_POINTS = Number(publicEnv.PUBLIC_MAX_DATA_POINTS || 50);
+
   
   // Port colors
   const PORT_COLORS = {
@@ -25,21 +28,72 @@
   let hoveredCpuPoint = null;
   let mousePos = { x: 0, y: 0 };
   
+  // Date filter state
+  let selectedDate = new Date().toISOString().split('T')[0]; // Today's date in YYYY-MM-DD format
+  let isRealtimeMode = true;
+  let maxDataPointsForHistorical = 1440; // For 24 hours with minute-level data
+  
+  // Build Flux query based on mode
+  function buildFluxQuery() {
+    if (isRealtimeMode) {
+      return 'from(bucket: "prescal") |> range(start: -1h) |> filter(fn: (r) => r._measurement == "server") |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")';
+    } else {
+      // For historical data, query full 24 hours of selected date
+      const startTime = `${selectedDate}T00:00:00Z`;
+      const endTime = `${selectedDate}T23:59:59Z`;
+      return `from(bucket: "prescal") |> range(start: ${startTime}, stop: ${endTime}) |> filter(fn: (r) => r._measurement == "server") |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")`;
+    }
+  }
+  
+  // Parse CSV response from InfluxDB v2
+  function parseCSV(csvText) {
+    const lines = csvText.trim().split('\n');
+    const data = [];
+    
+    // Skip the first line (header)
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      const columns = line.split(',');
+      
+      // CSV format: ,result,table,_start,_stop,_time,_measurement,port,cpu,rps
+      // Index:       0  1      2     3      4     5     6            7    8   9
+      if (columns.length >= 10) {
+        const item = {
+          time: columns[5],
+          port: columns[7],
+          cpu: columns[8],
+          rps: columns[9]
+        };
+        data.push(item);
+      }
+    }
+    
+    return data;
+  }
+  
   // Fetch data from API
   async function fetchServerData() {
     try {
       const response = await fetch(API_URL, {
+        method: 'POST',
         headers: {
           'Authorization': `Token ${TOKEN}`,
-          'Accept': '*/*'
-        }
+          'Content-Type': 'application/json',
+          'Accept': 'application/csv'
+        },
+        body: JSON.stringify({
+          query: buildFluxQuery()
+        })
       });
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const data = await response.json();
+      const csvText = await response.text();
+      const data = parseCSV(csvText);
       processData(data);
       error = null;
       lastUpdate = new Date();
@@ -80,13 +134,16 @@
         const portData = newServerData[port];
         const indices = portData.timestamps
           .map((ts, idx) => ({ ts, idx }))
-          .sort((a, b) => a.ts - b.ts)
-          .slice(-MAX_DATA_POINTS)
-          .map(item => item.idx);
+          .sort((a, b) => a.ts - b.ts);
         
-        portData.timestamps = indices.map(i => portData.timestamps[i]);
-        portData.rps = indices.map(i => portData.rps[i]);
-        portData.cpu = indices.map(i => portData.cpu[i]);
+        // Only limit data points in realtime mode
+        const limitedIndices = isRealtimeMode 
+          ? indices.slice(-MAX_DATA_POINTS).map(item => item.idx)
+          : indices.map(item => item.idx);
+        
+        portData.timestamps = limitedIndices.map(i => portData.timestamps[i]);
+        portData.rps = limitedIndices.map(i => portData.rps[i]);
+        portData.cpu = limitedIndices.map(i => portData.cpu[i]);
       });
       
       serverData = newServerData;
@@ -178,6 +235,34 @@
     }
   }
   
+  // Handle date change
+  function handleDateChange(event) {
+    selectedDate = event.target.value;
+    isRealtimeMode = false;
+    
+    // Stop realtime updates when viewing historical data
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+      refreshInterval = null;
+    }
+    
+    // Fetch historical data
+    loading = true;
+    fetchServerData();
+  }
+  
+  // Switch to realtime mode
+  function switchToRealtime() {
+    isRealtimeMode = true;
+    selectedDate = new Date().toISOString().split('T')[0];
+    
+    // Restart realtime updates
+    if (!refreshInterval) {
+      fetchServerData();
+      refreshInterval = setInterval(fetchServerData, REFRESH_INTERVAL);
+    }
+  }
+  
   // Lifecycle
   onMount(() => {
     fetchServerData();
@@ -196,7 +281,7 @@
     <!-- Header -->
     <div class="mb-8">
       <h1 class="text-4xl font-bold mb-2">Server Monitoring Dashboard</h1>
-      <div class="flex items-center gap-4 text-sm text-gray-400">
+      <div class="flex items-center gap-4 text-sm text-gray-400 flex-wrap">
         <span>Last updated: {lastUpdate ? formatTime(lastUpdate) : 'Never'}</span>
         {#if loading && !lastUpdate}
           <span class="flex items-center gap-2">
@@ -206,6 +291,37 @@
         {/if}
         {#if error}
           <span class="text-red-400">⚠ Error: {error}</span>
+        {/if}
+      </div>
+      
+      <!-- Date Filter -->
+      <div class="mt-4 flex items-center gap-4 flex-wrap">
+        <div class="flex items-center gap-2">
+          <label for="date-filter" class="text-sm text-gray-400">Filter by date:</label>
+          <input 
+            id="date-filter"
+            type="date" 
+            value={selectedDate}
+            max={new Date().toISOString().split('T')[0]}
+            on:change={handleDateChange}
+            class="bg-gray-800 border border-gray-600 rounded px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-blue-500"
+          />
+        </div>
+        
+        {#if !isRealtimeMode}
+          <button 
+            on:click={switchToRealtime}
+            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm transition-colors flex items-center gap-2"
+          >
+            <div class="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+            Switch to Realtime
+          </button>
+          <span class="text-sm text-yellow-400">Viewing historical data (24 hours)</span>
+        {:else}
+          <span class="text-sm text-green-400 flex items-center gap-2">
+            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            Live Mode
+          </span>
         {/if}
       </div>
     </div>
