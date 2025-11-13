@@ -1,0 +1,17 @@
+services:
+  svelte:
+    build: .
+    container_name: svelte_app
+    ports:
+      - "3009:3000"
+    environment:
+      # Frontend-safe vars
+      - PUBLIC_API_URL=http://host.docker.internal:8086/api/v2/query?org=docs
+      - PUBLIC_REFRESH_INTERVAL=1000
+      - PUBLIC_MAX_DATA_POINTS=50
+
+      # Server-side secret (DO NOT prefix with PUBLIC_)
+      - TOKEN=
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
