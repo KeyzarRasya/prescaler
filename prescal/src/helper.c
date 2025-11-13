@@ -40,8 +40,7 @@ int read_env(const char *to_search, char *dest, size_t dest_size) {
         return -1;
     }
 
-    snprintf(env_path, sizeof(env_path), "%s/.prescal/.env", home);
-
+    snprintf(env_path, sizeof(env_path), "%s/.prescal/.env", home);    
     fptr = fopen(env_path, "r");
     if (fptr == NULL) {
         perror("ERR");
