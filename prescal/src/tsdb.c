@@ -59,7 +59,6 @@ void tsdb_write(struct timeseries_db *tsdb, char *payload, size_t size) {
         "Authorization: Token %s\r\n"
         "Content-Type: text/plain; charset=utf-8\r\n"
         "Content-Length: %zu\r\n"
-        "Connection: close\r\n"
         "\r\n"
         "%s",
         host, token, strlen(payload), payload);
