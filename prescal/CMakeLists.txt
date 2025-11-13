@@ -14,6 +14,7 @@ set (
     src/metrics.c
     src/epoll.c
     src/tsdb.c
+    src/helper.c
     ds/linkedlist.c
 )
 
