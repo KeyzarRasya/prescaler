@@ -186,8 +186,8 @@ void init_listener(int fd, struct prescal_engine *engine) {
     }
 }
 
-void handle_connections(int fd, 
-        int epfd, 
+void handle_connections(int fd,
+        int epfd,
         struct epoll_event *ev,
         struct epoll_event *events
     ) {
@@ -211,18 +211,22 @@ void handle_connections(int fd,
                             break;
                         }
                     }
-                    
+
                     /* Set non-blocking mode */
                     int flags = fcntl(new_fd, F_GETFL, 0);
                     fcntl(new_fd, F_SETFL, flags | O_NONBLOCK);
-                    
+
                     /* Add to epoll for monitoring */
                     ev->data.fd = new_fd;
                     ev->events = EPOLLIN | EPOLLET;
                     epoll_ctl(epfd, EPOLL_CTL_ADD, new_fd, ev);
                 }
             } else {
-                process_request(events[i].data.fd);
+                int client_fd = events[i].data.fd; // Get the client file descriptor
+                process_request(client_fd);
+                // Now, remove from epoll and close the socket
+                epoll_ctl(epfd, EPOLL_CTL_DEL, client_fd, NULL);
+                close(client_fd);
             }
         }
     }
