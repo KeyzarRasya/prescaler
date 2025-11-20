@@ -7,7 +7,6 @@
 #include <string.h>
 #include <ctype.h>
 
-
 struct prescal_config *config_init(void) {
     struct prescal_config *config = 
         malloc(sizeof(struct prescal_config));
@@ -37,7 +36,15 @@ void trim(char *str) {
 }
 
 void read_config(struct prescal_config *config) {
-    FILE *fp = fopen(PATH, "r");
+    const char *home = getenv("HOME");
+    if (!home) {
+        perror("Cannot read HOME");
+        return;
+    }
+    char path[126];
+    snprintf(path, sizeof(path), "%s/prescal/config.yml", home);
+    printf("%s\n", path);
+    FILE *fp = fopen(path, "r");
     if (!fp) {
         perror("Gagal membuka file");
         exit(EXIT_FAILURE);
