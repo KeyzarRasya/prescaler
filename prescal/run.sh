@@ -29,7 +29,7 @@ ExecStart=/usr/bin/prescal
 Restart=always
 User=root
 WorkingDirectory=/usr/bin
-Environment=HOME=/root/
+Environment=HOME=/root
 
 [Install]
 WantedBy=multi-user.target
