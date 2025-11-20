@@ -294,7 +294,7 @@ void process_request(int fd) {
     struct http_req *hreq = http_req_init();
 
     if (handle_request(fd, hreq) != 0) {
-        free(hreq);
+        http_req_clean(hreq);
         return;
     }
     
@@ -317,7 +317,7 @@ void process_request(int fd) {
         log_elapsed_time(start, end);
     #endif
     
-    free(hreq);
+    http_req_clean(hreq);
 }
 
 /**
