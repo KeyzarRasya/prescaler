@@ -50,6 +50,7 @@ int request_metrics(uint16_t port, char *out, size_t size) {
     }
 
     if (connect_target(fd, port) < 0) {
+        close(fd);
         perror("Cannot connect to target instance\n");
         return -1;
     }
@@ -58,6 +59,7 @@ int request_metrics(uint16_t port, char *out, size_t size) {
     
     int n = recv(fd, out, size, 0);
     if (n < 0) {
+        close(fd);
         perror("recv\n");
         return -1;
     }
@@ -156,7 +158,6 @@ void write_metrics_db(struct timeseries_db *tsdb, struct metrics *metrics) {
              metrics->cpu_usage);
     tsdb_write(tsdb, payloads, strlen(payloads));
 }
-
 
 
 void copy_string(const char *src, char *dest, size_t size) {
