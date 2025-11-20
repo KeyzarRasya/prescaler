@@ -1,11 +1,10 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { env as publicEnv } from '$env/dynamic/public';
-  import { env as privateEnv } from '$env/dynamic/private';
   
   // Configuration
-  const API_URL = publicEnv.PUBLIC_API_URL;
-  const TOKEN = privateEnv.TOKEN;
+  const API_URL = publicEnv.PUBLIC_API_URL || "http://localhost:8086/api/v2/query?org=docs"
+  const TOKEN = "3pkGsKDjnM8sW8AaGUbKHy2ooBBq4g3_oJvHDRjPIJqyqG2oBT5Gl66mmHxU8UpNjNN7AmNqkZRSALpNM9_AmA==";
   const REFRESH_INTERVAL = Number(publicEnv.PUBLIC_REFRESH_INTERVAL || 1000);
   const MAX_DATA_POINTS = Number(publicEnv.PUBLIC_MAX_DATA_POINTS || 50);
 
@@ -47,30 +46,48 @@
   
   // Parse CSV response from InfluxDB v2
   function parseCSV(csvText) {
-    const lines = csvText.trim().split('\n');
-    const data = [];
-    
-    // Skip the first line (header)
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      
-      const columns = line.split(',');
-      
-      // CSV format: ,result,table,_start,_stop,_time,_measurement,port,cpu,rps
-      // Index:       0  1      2     3      4     5     6            7    8   9
-      if (columns.length >= 10) {
-        const item = {
-          time: columns[5],
-          port: columns[7],
-          cpu: columns[8],
-          rps: columns[9]
-        };
-        data.push(item);
+    try {
+      if (!csvText || typeof csvText !== 'string') {
+        console.error('Invalid CSV text received');
+        return [];
       }
+
+      const lines = csvText.trim().split('\n');
+      const data = [];
+      
+      // Skip the first line (header)
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const columns = line.split(',');
+        
+        // CSV format: ,result,table,_start,_stop,_time,_measurement,port,cpu,rps
+        // Index:       0  1      2     3      4     5     6            7    8   9
+        if (columns.length >= 10) {
+          const time = columns[5];
+          const port = columns[7];
+          const cpu = columns[8];
+          const rps = columns[9];
+          
+          // Check all required values exist
+          if (time && port && cpu !== undefined && rps !== undefined) {
+            const item = {
+              time: time,
+              port: port,
+              cpu: cpu,
+              rps: rps
+            };
+            data.push(item);
+          }
+        }
+      }
+      
+      return data;
+    } catch (err) {
+      console.error('Error in parseCSV:', err);
+      return [];
     }
-    
-    return data;
   }
   
   // Fetch data from API
