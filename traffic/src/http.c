@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <string.h>
 #include "../include/http.h"
+#include "../include/config.h"
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
@@ -37,18 +38,35 @@ void send_request(void) {
     return;
 }
 
-int in_hours_range(int hour) {
-    return hour >= 0 && hour <= 23;
+int is_in_period(int hour, time_period_t *period) {
+    if (period->start_hour <= period->end_hour) {
+        // Normal case: 8:00 - 17:00
+        return hour >= period->start_hour && hour < period->end_hour;
+    } else {
+        // Wraparound case: 22:00 - 08:00
+        return hour >= period->start_hour || hour < period->end_hour;
+    }
 }
 
-int traffic_amount(struct tm *localtime, int prime_start, int prime_end) {
-    if (!in_hours_range(prime_start) || !in_hours_range(prime_end)) {
-        return -1;
+int traffic_amount_v2(struct tm *localtime, traffic_config_t *config) {
+    int hour = localtime->tm_hour;
+    time_period_t *period = NULL;
+
+    // Determine which period we're in
+    if (is_in_period(hour, &config->business)) {
+        period = &config->business;
+    } else if (is_in_period(hour, &config->evening)) {
+        period = &config->evening;
+    } else if (is_in_period(hour, &config->night)) {
+        period = &config->night;
+    } else {
+        // Fallback - shouldn't happen if config is valid
+        return 100;
     }
-    int hours = localtime->tm_hour;
-    int is_prime_hours = (prime_start - prime_end) < 0;
-    if (is_prime_hours) {return rand() % 1000;}
-    else {return rand() % 1000;}
+
+    // Generate random in range [min, max]
+    int range = period->max_requests - period->min_requests + 1;
+    return (rand() % range) + period->min_requests;
 }
 
 /**
@@ -85,17 +103,27 @@ void* traffic_forwarder(void *args) {
 }
 
 void traffic_worker() {
+    /* Load config once at startup */
+    traffic_config_t *config = load_config("/root/traffic.conf");
+    if (!config) {
+        printf("Failed to load config, using defaults\n");
+        config = get_default_config();
+    }
+
+    if (validate_config(config) != 0) {
+        printf("Invalid config, using defaults\n");
+        free_config(config);
+        config = get_default_config();
+    }
+
     /* Seed once at start */
     srand(time(NULL));
 
     while (1) {
         time_t now = time(NULL);
         struct tm *local_time = localtime(&now);
-        int traffic = traffic_amount(local_time, 22, 0);
-        if (traffic == -1) {
-            printf("Start and end prime time is in between 0-23");
-            return;
-        }
+        int traffic = traffic_amount_v2(local_time, config);
+
         int *traffic_copy = malloc(sizeof(int));
         if (!traffic_copy) {
             perror("malloc failed");
@@ -111,5 +139,8 @@ void traffic_worker() {
         pthread_detach(forwarder);
         usleep(1000 * 1000);
     }
+
+    // Cleanup (never reached in current implementation)
+    free_config(config);
     return;
 }
