@@ -5,6 +5,7 @@ set(
     SOURCES
     main.c
     src/http.c
+    src/config.c
 )
 
 include_directories(include)

@@ -22,6 +22,14 @@ sudo cp "./$APP_NAME" "$BIN_PATH"
 sudo chmod +x "$BIN_PATH"
 echo "✅ Copied binary to $BIN_PATH"
 
+# Copy config file to /root if it doesn't exist
+if [ ! -f "/root/traffic.conf" ]; then
+    sudo cp "../traffic.conf" "/root/traffic.conf"
+    echo "✅ Created config file at /root/traffic.conf"
+else
+    echo "ℹ️  Config file already exists at /root/traffic.conf (not overwriting)"
+fi
+
 # Create systemd service file
 echo "🧾 Creating systemd service at $SERVICE_FILE ..."
 sudo bash -c "cat > $SERVICE_FILE" <<EOF
