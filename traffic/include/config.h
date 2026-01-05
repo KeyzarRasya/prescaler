@@ -2,16 +2,12 @@
 #define CONFIG_H
 
 typedef struct {
-    int start_hour;
-    int end_hour;
-    int min_requests;
-    int max_requests;
-} time_period_t;
-
-typedef struct {
-    time_period_t business;
-    time_period_t evening;
-    time_period_t night;
+    int base_min_requests;
+    int base_max_requests;
+    int high_traffic_min_requests;
+    int high_traffic_max_requests;
+    int normal_traffic_duration;
+    int high_traffic_duration;
 } traffic_config_t;
 
 traffic_config_t* load_config(const char *config_path);

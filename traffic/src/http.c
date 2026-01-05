@@ -14,8 +14,9 @@ void send_request(void) {
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
+        // Non-critical, so don't exit, just report
         perror("socket");
-        exit(EXIT_FAILURE);
+        return;
     }
 
     struct sockaddr_in target = {
@@ -27,46 +28,16 @@ void send_request(void) {
     socklen_t target_size = sizeof(target);
     if (connect(fd, (struct sockaddr*)&target, target_size) < 0) {
         perror("connect");
-        exit(EXIT_FAILURE);
+        close(fd);
+        return;
     }
 
     char request[] = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
     char response[MAX_BUFFER_SIZE];
     send(fd, request, strlen(request), 0);
-    int n = recv(fd, response, sizeof(response), 0);
+    recv(fd, response, sizeof(response), 0);
     close(fd);
     return;
-}
-
-int is_in_period(int hour, time_period_t *period) {
-    if (period->start_hour <= period->end_hour) {
-        // Normal case: 8:00 - 17:00
-        return hour >= period->start_hour && hour < period->end_hour;
-    } else {
-        // Wraparound case: 22:00 - 08:00
-        return hour >= period->start_hour || hour < period->end_hour;
-    }
-}
-
-int traffic_amount_v2(struct tm *localtime, traffic_config_t *config) {
-    int hour = localtime->tm_hour;
-    time_period_t *period = NULL;
-
-    // Determine which period we're in
-    if (is_in_period(hour, &config->business)) {
-        period = &config->business;
-    } else if (is_in_period(hour, &config->evening)) {
-        period = &config->evening;
-    } else if (is_in_period(hour, &config->night)) {
-        period = &config->night;
-    } else {
-        // Fallback - shouldn't happen if config is valid
-        return 100;
-    }
-
-    // Generate random in range [min, max]
-    int range = period->max_requests - period->min_requests + 1;
-    return (rand() % range) + period->min_requests;
 }
 
 /**
@@ -89,7 +60,7 @@ void* traffic_forwarder(void *args) {
     unsigned int seed = get_thread_seed();
     
     int i = 0;
-    printf("Preparing sending %d request\n", amount);
+    printf("Preparing to send %d requests...\n", amount);
     while (i < amount) {
         send_request();
         i++;
@@ -98,13 +69,13 @@ void* traffic_forwarder(void *args) {
         int delay = (rand_r(&seed) % 15000) + 2000; // 2-17ms random delay
         usleep(delay);
     }
-    printf("Request Done: %d Requests\n", amount);
+    printf("Request batch done: %d requests sent.\n", amount);
     return NULL;
 }
 
 void traffic_worker() {
     /* Load config once at startup */
-    traffic_config_t *config = load_config("/root/traffic.conf");
+    traffic_config_t *config = load_config("traffic.conf");
     if (!config) {
         printf("Failed to load config, using defaults\n");
         config = get_default_config();
@@ -116,13 +87,44 @@ void traffic_worker() {
         config = get_default_config();
     }
 
-    /* Seed once at start */
+    /* Seed master random number generator once at start */
     srand(time(NULL));
 
+    // State management
+    enum { STATE_NORMAL, STATE_HIGH } current_state = STATE_NORMAL;
+    int seconds_in_current_state = 0;
+    
+    printf("Starting traffic generation. Initial state: NORMAL period for %d seconds.\n", config->normal_traffic_duration);
+
     while (1) {
-        time_t now = time(NULL);
-        struct tm *local_time = localtime(&now);
-        int traffic = traffic_amount_v2(local_time, config);
+        seconds_in_current_state++;
+        int traffic = 0;
+        int range = 0;
+
+        if (current_state == STATE_NORMAL) {
+            // --- In Normal Period ---
+            range = config->base_max_requests - config->base_min_requests + 1;
+            traffic = (rand() % range) + config->base_min_requests;
+
+            // Check if it's time to switch to high traffic period
+            if (seconds_in_current_state >= config->normal_traffic_duration) {
+                current_state = STATE_HIGH;
+                seconds_in_current_state = 0; // Reset timer for new state
+                printf("Switching to HIGH traffic period for %d seconds.\n", config->high_traffic_duration);
+            }
+
+        } else { // current_state == STATE_HIGH
+            // --- In High Traffic Period ---
+            range = config->high_traffic_max_requests - config->high_traffic_min_requests + 1;
+            traffic = (rand() % range) + config->high_traffic_min_requests;
+
+            // Check if it's time to switch back to normal period
+            if (seconds_in_current_state >= config->high_traffic_duration) {
+                current_state = STATE_NORMAL;
+                seconds_in_current_state = 0; // Reset timer for new state
+                printf("Switching to NORMAL traffic period for %d seconds.\n", config->normal_traffic_duration);
+            }
+        }
 
         int *traffic_copy = malloc(sizeof(int));
         if (!traffic_copy) {
@@ -137,6 +139,8 @@ void traffic_worker() {
             continue;
         }
         pthread_detach(forwarder);
+        
+        // Sleep for 1 second before the next cycle
         usleep(1000 * 1000);
     }
 
@@ -144,3 +148,5 @@ void traffic_worker() {
     free_config(config);
     return;
 }
+
+
