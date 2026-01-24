@@ -41,7 +41,7 @@ After=network.target
 ExecStart=$BIN_PATH
 Restart=always
 User=root
-WorkingDirectory=$(dirname "$BIN_PATH")
+WorkingDirectory=/root
 StandardOutput=append:/var/log/${APP_NAME}.log
 StandardError=append:/var/log/${APP_NAME}.err
 
