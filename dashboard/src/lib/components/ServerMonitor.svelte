@@ -4,7 +4,7 @@
   
   // Configuration
   const API_URL = publicEnv.PUBLIC_API_URL || "http://localhost:8086/api/v2/query?org=docs"
-  const TOKEN = "3pkGsKDjnM8sW8AaGUbKHy2ooBBq4g3_oJvHDRjPIJqyqG2oBT5Gl66mmHxU8UpNjNN7AmNqkZRSALpNM9_AmA==";
+  const TOKEN = "rCFxXenjRSU3W4CD727ZR0ec583mAb49fQARY1pEkAwed0f3Sk-sQGosiv86lItEuyWNcvpskOP51gahbgpLcg==";
   const REFRESH_INTERVAL = Number(publicEnv.PUBLIC_REFRESH_INTERVAL || 1000);
   const MAX_DATA_POINTS = Number(publicEnv.PUBLIC_MAX_DATA_POINTS || 50);
 
