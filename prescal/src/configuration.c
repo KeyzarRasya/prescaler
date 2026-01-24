@@ -35,18 +35,10 @@ void trim(char *str) {
     while (end > str && isspace((unsigned char)*end)) *end-- = '\0';
 }
 
-void read_config(struct prescal_config *config) {
-    const char *home = getenv("HOME");
-    if (!home) {
-        perror("Cannot read HOME");
-        return;
-    }
-    char path[126];
-    snprintf(path, sizeof(path), "%s/prescal/config.yml", home);
-    printf("%s\n", path);
+void read_config(struct prescal_config *config, const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) {
-        perror("Gagal membuka file");
+        perror("Failed to open config file");
         exit(EXIT_FAILURE);
     }
 
@@ -98,4 +90,32 @@ void print_config(struct prescal_config *config) {
         printf("%s\n",curr->value);
         curr = curr->next;
     }
+}
+
+void config_destroy(struct prescal_config *config) {
+    if (!config) {
+        return;
+    }
+
+    // Free the 'entry' string if it was allocated
+    if (config->entry) {
+        free(config->entry);
+    }
+
+    // Free the linked list and its node values
+    if (config->forwards) {
+        struct node *current = config->forwards->first;
+        while (current) {
+            struct node *next = current->next;
+            if (current->value) {
+                free(current->value); // Free the string value in the node
+            }
+            free(current); // Free the node itself
+            current = next;
+        }
+        free(config->forwards); // Free the linkedlist struct
+    }
+
+    // Finally, free the config struct itself
+    free(config);
 }

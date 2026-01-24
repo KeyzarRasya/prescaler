@@ -10,37 +10,37 @@
 #include "include/ds/linkedlist.h"
 #include <time.h>
 
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <path_to_config.yml>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
 
-void linkedlist_test(void){
-    struct linkedlist *ll = linkedlist_init();
-    append_node(ll, "localhost:3000");
-    append_node(ll, "localhost:3001");
-    append_node(ll, "localhost:3002");
-    print_ll(ll);
-}
+    const char *config_path = argv[1];
 
-void start_engine(void) {
-    struct prescal_engine *engine = engine_init("127.0.0.1", 80);
+    // Initialize configuration from config.yml
+    struct prescal_config *config = config_init();
+    if (!config) {
+        fprintf(stderr, "Failed to initialize configuration.\n");
+        return EXIT_FAILURE;
+    }
+    read_config(config, config_path);
+
+
+    // Initialize the engine with the loaded configuration
+    struct prescal_engine *engine = engine_init(config);
+    if (!engine) {
+        fprintf(stderr, "Failed to initialize engine.\n");
+        // Note: config memory would be freed here if engine_init fails
+        // but for now, we assume it won't fail if config is valid.
+        return EXIT_FAILURE;
+    }
+
+    // Start the engine's main loop
     start(engine);
 
+    // Cleanup is handled by destroy_engine
     destroy_engine(engine);
-}
 
-void test_config(void) {
-    struct prescal_config *config = config_init();
-    read_config(config);
-    print_config(config);
-}
-
-void docker_instance(void) {
-    int docker_fd = dclient_connect();
-    // dclient_new_instance(docker_fd);
-    dclient_start_container(docker_fd);
-    close(docker_fd);
-}
-
-
-int main() {
-    start_engine();
     return 0;
 }

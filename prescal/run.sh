@@ -25,11 +25,10 @@ Description=Predictive Scaling Main Engine
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/prescal
+ExecStart=/usr/bin/prescal /home/keyzarrasya/Documents/project/prescal/prescal/config.yml
 Restart=always
 User=root
 WorkingDirectory=/usr/bin
-Environment=HOME=/root
 
 [Install]
 WantedBy=multi-user.target

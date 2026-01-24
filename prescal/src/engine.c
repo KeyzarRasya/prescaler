@@ -21,25 +21,18 @@
 
 #define DEBUG 0
 
-/* Global round-robin counter for load balancing */
-static atomic_uint_fast32_t rr_counter = ATOMIC_VAR_INIT(0);
+// Global engine instance
+static struct prescal_engine *g_engine;
 
-/* Available backend ports */
-static const int BACKEND_PORTS[] = {3000, 3001, 3002};
-static const int NUM_BACKENDS = 3;
-
-/* Per-port RPS counters - indexed by (port - 3000) */
-static atomic_int rps_counters[3] = {
-    ATOMIC_VAR_INIT(0),
-    ATOMIC_VAR_INIT(0),
-    ATOMIC_VAR_INIT(0)
-};
+/* Per-port RPS counters - dynamically allocated */
+static atomic_int *rps_counters;
 
 double cpu_t0;
 
 void *request_per_second(void *arg) {
     struct thread_arg *targ = (struct thread_arg *)arg;
     int port = targ->port;
+    int index = targ->index;
     struct timeseries_db *tsdb = init_tsdb(8086);
     if (tsdb_connect(tsdb) != CONN_SUCCESS) {
         perror("tsdb start");
@@ -82,8 +75,7 @@ void *request_per_second(void *arg) {
         calculate_metrics(metrics, cpu_t0);
 
         /* Get RPS for THIS specific port */
-        int port_index = port - 3000;
-        int rps = atomic_exchange(&rps_counters[port_index], 0);
+        int rps = atomic_exchange(&rps_counters[index], 0);
         metrics->rps = rps;
         write_metrics(fptr, metrics, rps);
 
@@ -131,16 +123,31 @@ void log_elapsed_time(struct timespec start, struct timespec end) {
     printf("Elapsed time: %0.6f\n", elapsed);
 }
 
-/**
- * Round-robin load balancing - O(1) time complexity
- * Thread-safe using atomic operations
- * Returns the next backend port in rotation
- */
-static int get_next_backend_port(void) {
-    uint32_t current = atomic_fetch_add(&rr_counter, 1);
-    int index = current % NUM_BACKENDS;
-    return BACKEND_PORTS[index];
+static int get_next_backend_port(int *out_port, int *out_index) {
+    if (!g_engine || !g_engine->backends || g_engine->backends->size == 0) {
+        return -1; // No backends configured
+    }
+
+    uint32_t current = atomic_fetch_add(&g_engine->rr_counter, 1);
+    int index = current % g_engine->backends->size;
+
+    struct node *backend_node = get_node_at(g_engine->backends, index);
+    if (!backend_node) {
+        return -1; // Should not happen
+    }
+
+    // Parse port from "host:port" string
+    char *colon = strrchr(backend_node->value, ':');
+    if (!colon) {
+        return -1; // Invalid format
+    }
+
+    *out_port = atoi(colon + 1);
+    *out_index = index;
+
+    return 0;
 }
+
 
 /**
  * Connect to specific backend server port
@@ -162,7 +169,7 @@ static int connect_to_port(int fd, int port) {
 void init_listener(int fd, struct prescal_engine *engine) {
     struct sockaddr_in server = {
         .sin_family = AF_INET,
-        .sin_port = htons(engine->port),
+        .sin_port = htons(engine->config->port),
         .sin_addr = INADDR_ANY
     };
     
@@ -192,7 +199,7 @@ void handle_connections(int fd,
         struct epoll_event *events
     ) {
     struct sockaddr_in client;
-    printf("Listening...\n");
+    printf("Listening on port %d...\n", g_engine->config->port);
 
     while (1) {
         int npfd = epoll_wait(epfd, events, EPOLL_MAX_EVENTS, -1);
@@ -234,29 +241,62 @@ void handle_connections(int fd,
 /* END */
 
 
-struct prescal_engine *engine_init(char *host, uint16_t port) {
-    struct prescal_engine *engine = 
-        malloc(sizeof(struct prescal_engine));
-
-    if (!engine) {
+struct prescal_engine *engine_init(struct prescal_config *config) {
+    g_engine = malloc(sizeof(struct prescal_engine));
+    if (!g_engine) {
         perror("Failed to allocate engine");
         return NULL;
     }
-    engine->host = host;
-    engine->port = port;
-    engine->config = config_init();
 
-    read_config(engine->config);
-    return engine;
+    g_engine->config = config;
+    g_engine->backends = config->forwards; // Use the list from config
+    atomic_init(&g_engine->rr_counter, 0);
+
+    // Allocate and initialize RPS counters
+    if (g_engine->backends->size > 0) {
+        rps_counters = calloc(g_engine->backends->size, sizeof(atomic_int));
+        if (!rps_counters) {
+            perror("Failed to allocate rps_counters");
+            free(g_engine);
+            return NULL;
+        }
+        for (int i = 0; i < g_engine->backends->size; i++) {
+            atomic_init(&rps_counters[i], 0);
+        }
+    } else {
+        rps_counters = NULL;
+    }
+
+    return g_engine;
 }
 
 void start(struct prescal_engine *engine) {
-    pthread_t metric_threads[3];
-    struct thread_arg args[3] = {
-        {3000}, {3001}, {3002}
-    };
+    int num_backends = engine->backends->size;
+    if (num_backends == 0) {
+        fprintf(stderr, "No backends configured. Exiting.\n");
+        return;
+    }
 
-    for (int i = 0; i < 3; i++) {
+    pthread_t metric_threads[num_backends];
+    struct thread_arg args[num_backends];
+
+    struct node *current = engine->backends->first;
+    for (int i = 0; i < num_backends; i++) {
+        if (!current) {
+            fprintf(stderr, "Mismatch between backend size and list content.\n");
+            break;
+        }
+        char *colon = strrchr(current->value, ':');
+        if (colon) {
+            args[i].port = atoi(colon + 1);
+        } else {
+            args[i].port = 0; // Or handle error
+        }
+        args[i].index = i;
+        current = current->next;
+    }
+
+    for (int i = 0; i < num_backends; i++) {
         if (pthread_create(&metric_threads[i], NULL, request_per_second, &args[i]) != 0) {
             perror("pthread_create for metrics");
         }
@@ -280,7 +320,7 @@ void start(struct prescal_engine *engine) {
 
     close(fd);
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < num_backends; i++) {
         pthread_join(metric_threads[i], NULL);
     }
 
@@ -298,17 +338,23 @@ void process_request(int fd) {
         return;
     }
     
-    /* Select backend IMMEDIATELY when request arrives */
-    int backend_port = get_next_backend_port();
+    int backend_port, backend_index;
+    if (get_next_backend_port(&backend_port, &backend_index) != 0) {
+        // Handle error: no backend available
+        http_req_clean(hreq);
+        // Maybe send a 503 Service Unavailable response
+        return;
+    }
     
     #if DEBUG
-        printf("[DEBUG] Forwarding to port %d (counter: %u)\n", 
-               backend_port, atomic_load(&rr_counter));
+        printf("[DEBUG] Forwarding to port %d (index: %d)\n", 
+               backend_port, backend_index);
     #endif
     
     /* Increment the RPS counter for the selected backend port */
-    int port_index = backend_port - 3000;
-    atomic_fetch_add(&rps_counters[port_index], 1);
+    if (backend_index < g_engine->backends->size) {
+        atomic_fetch_add(&rps_counters[backend_index], 1);
+    }
 
     handle_response(fd, hreq, backend_port);
     clock_gettime(CLOCK_MONOTONIC, &end);
@@ -346,12 +392,17 @@ int forwards_to_port(const char *request, char *http_response, size_t size, int 
 
 /* Keep backwards compatibility */
 int forwards(const char *request, char *http_response, size_t size) {
-    int port = get_next_backend_port();
-    return forwards_to_port(request, http_response, size, port);
+    int port, index;
+    if (get_next_backend_port(&port, &index) == 0) {
+        return forwards_to_port(request, http_response, size, port);
+    }
+    return -1; // No backend available
 }
 
 void destroy_engine(struct prescal_engine *engine) {
-    free(engine->config->forwards);
-    free(engine->config);
+    if (!engine) return;
+    
+    config_destroy(engine->config);
+    free(rps_counters);
     free(engine);
 }

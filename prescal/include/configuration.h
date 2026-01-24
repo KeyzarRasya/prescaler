@@ -13,7 +13,8 @@ struct prescal_config{
 };
 
 struct prescal_config *config_init(void);
-void read_config(struct prescal_config *config);
+void read_config(struct prescal_config *config, const char *path);
 void print_config(struct prescal_config *config);
+void config_destroy(struct prescal_config *config);
 
 #endif

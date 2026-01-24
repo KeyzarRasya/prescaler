@@ -3,7 +3,9 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <stdatomic.h>
 #include "configuration.h"
+#include "ds/linkedlist.h"
 
 #define MAX_BUFF_SIZE   9000
 #define BACKEND_PORT    3000
@@ -18,21 +20,23 @@
     "Socket Failure"
 
 struct prescal_engine{
-    char *host;
-    uint16_t port;
     struct prescal_config *config;
+    struct linkedlist *backends;
+    atomic_uint_fast32_t rr_counter;
 };
 
 struct thread_arg {
     int port;
+    int index;
 };
 
 /* Prescal Engine function Definition */
-struct prescal_engine *engine_init(char *host, uint16_t port);
+struct prescal_engine *engine_init(struct prescal_config *config);
 void start(struct prescal_engine *engine);
 void process_request(int fd);
 int forwards(const char *request, char *http_response, size_t size);
 int forwards_to_port(const char *request, char *http_response, size_t size, int port);
 void destroy_engine(struct prescal_engine *engine);
+
 
 #endif
