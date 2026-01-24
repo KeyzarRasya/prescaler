@@ -61,3 +61,18 @@ void print_ll(struct linkedlist *ll) {
         current = current->next;
     }
 }
+
+struct node *get_node_at(struct linkedlist *ll, int index) {
+    if (index < 0 || index >= ll->size) {
+        return NULL; // Index out of bounds
+    }
+
+    struct node *current = ll->first;
+    for (int i = 0; i < index; i++) {
+        if (current == NULL) {
+            return NULL; // Should not happen if size is correct
+        }
+        current = current->next;
+    }
+    return current;
+}
