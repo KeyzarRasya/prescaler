@@ -3,12 +3,16 @@
 #include <time.h>
 #include <unistd.h>
 #include <string.h>
+#include <semaphore.h>
 #include "../include/http.h"
 #include "../include/config.h"
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
+/* Semaphore to limit concurrent forwarder threads */
+static sem_t thread_limiter;
 
 void send_request(void) {
     int fd;
@@ -70,6 +74,7 @@ void* traffic_forwarder(void *args) {
         usleep(delay);
     }
     printf("Request batch done: %d requests sent.\n", amount);
+    sem_post(&thread_limiter); /* Release slot for next thread */
     return NULL;
 }
 
@@ -89,6 +94,9 @@ void traffic_worker() {
 
     /* Seed master random number generator once at start */
     srand(time(NULL));
+
+    /* Initialize semaphore to limit concurrent forwarder threads */
+    sem_init(&thread_limiter, 0, MAX_CONCURRENT_THREADS);
 
     // State management
     enum { STATE_NORMAL, STATE_HIGH } current_state = STATE_NORMAL;
@@ -126,9 +134,13 @@ void traffic_worker() {
             }
         }
 
+        /* Wait for a thread slot to become available */
+        sem_wait(&thread_limiter);
+
         int *traffic_copy = malloc(sizeof(int));
         if (!traffic_copy) {
             perror("malloc failed");
+            sem_post(&thread_limiter); /* Release slot on failure */
             continue;
         }
         *traffic_copy = traffic;
@@ -136,6 +148,7 @@ void traffic_worker() {
         if (pthread_create(&forwarder, NULL, traffic_forwarder, traffic_copy) != 0) {
             perror("pthread_create failed");
             free(traffic_copy);
+            sem_post(&thread_limiter); /* Release slot on failure */
             continue;
         }
         pthread_detach(forwarder);
