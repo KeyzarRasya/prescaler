@@ -41,6 +41,7 @@ int read_env(const char *to_search, char *dest, size_t dest_size) {
     }
 
     snprintf(env_path, sizeof(env_path), "%s/.prescal/.env", home);    
+    fprintf(stderr, "INFO: Attempting to read environment file from: %s\n", env_path);
     fptr = fopen(env_path, "r");
     if (fptr == NULL) {
         perror("ERR");

@@ -36,8 +36,10 @@ void trim(char *str) {
 }
 
 void read_config(struct prescal_config *config, const char *path) {
+    fprintf(stderr, "INFO: Attempting to read configuration file from: %s\n", path);
     FILE *fp = fopen(path, "r");
     if (!fp) {
+
         perror("Failed to open config file");
         exit(EXIT_FAILURE);
     }
