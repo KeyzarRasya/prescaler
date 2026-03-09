@@ -7,6 +7,8 @@
   const TOKEN = "rCFxXenjRSU3W4CD727ZR0ec583mAb49fQARY1pEkAwed0f3Sk-sQGosiv86lItEuyWNcvpskOP51gahbgpLcg==";
   const REFRESH_INTERVAL = Number(publicEnv.PUBLIC_REFRESH_INTERVAL || 1000);
   const MAX_DATA_POINTS = Number(publicEnv.PUBLIC_MAX_DATA_POINTS || 50);
+  const STALENESS_THRESHOLD_MS = 15000; // 15 seconds
+  const REALTIME_RANGE_MS = 5 * 60 * 1000; // 5 minutes
 
   
   // Port colors
@@ -35,7 +37,7 @@
   // Build Flux query based on mode
   function buildFluxQuery() {
     if (isRealtimeMode) {
-      return 'from(bucket: "prescal") |> range(start: -1h) |> filter(fn: (r) => r._measurement == "server") |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")';
+      return 'from(bucket: "prescal") |> range(start: -5m) |> filter(fn: (r) => r._measurement == "server") |> pivot(rowKey:["_time"], columnKey:["_field"], valueColumn:"_value")';
     } else {
       // For historical data, query full 24 hours of selected date
       const startTime = `${selectedDate}T00:00:00Z`;
@@ -164,7 +166,19 @@
       });
       
       serverData = newServerData;
-      ports = Object.keys(newServerData).sort();
+      
+      // Filter out stale ports in realtime mode
+      const now = new Date();
+      if (isRealtimeMode) {
+        ports = Object.keys(newServerData).filter(port => {
+          const portData = newServerData[port];
+          if (portData.timestamps.length === 0) return false;
+          const latestTs = portData.timestamps[portData.timestamps.length - 1];
+          return (now - latestTs) < STALENESS_THRESHOLD_MS;
+        }).sort();
+      } else {
+        ports = Object.keys(newServerData).sort();
+      }
     }
   }
   
@@ -424,10 +438,18 @@
                   {@const color = PORT_COLORS[port] || PORT_COLORS['3000']}
                   {#if serverData[port] && serverData[port].rps.length > 1}
                     {@const points = serverData[port].rps.map((rps, i) => {
-                      const x = (i / (serverData[port].rps.length - 1)) * 800;
+                      const ts = serverData[port].timestamps[i];
+                      let x;
+                      if (isRealtimeMode) {
+                        const now = new Date();
+                        const timeAgo = now - ts;
+                        x = 800 - (timeAgo / REALTIME_RANGE_MS) * 800;
+                      } else {
+                        x = (i / (serverData[port].rps.length - 1)) * 800;
+                      }
                       const y = 250 - (rps / maxRps) * 230;
                       return `${x},${y}`;
-                    }).join(' ')}
+                    }).filter(p => !p.includes('NaN')).join(' ')}
                     
                     <!-- Area fill -->
                     <polygon 
@@ -448,9 +470,12 @@
                     
                     <!-- Data points -->
                     {#each serverData[port].rps as rps, i}
-                      {@const x = (i / (serverData[port].rps.length - 1)) * 800}
+                      {@const ts = serverData[port].timestamps[i]}
+                      {@const x = isRealtimeMode ? (800 - ((new Date() - ts) / REALTIME_RANGE_MS) * 800) : (i / (serverData[port].rps.length - 1)) * 800}
                       {@const y = 250 - (rps / maxRps) * 230}
-                      <circle cx={x} cy={y} r="4" fill={color.line} opacity="0.7" />
+                      {#if x >= 0 && x <= 800}
+                        <circle cx={x} cy={y} r="4" fill={color.line} opacity="0.7" />
+                      {/if}
                     {/each}
                   {/if}
                 {/each}
@@ -551,10 +576,18 @@
                   {@const color = PORT_COLORS[port] || PORT_COLORS['3000']}
                   {#if serverData[port] && serverData[port].cpu.length > 1}
                     {@const points = serverData[port].cpu.map((cpu, i) => {
-                      const x = (i / (serverData[port].cpu.length - 1)) * 800;
+                      const ts = serverData[port].timestamps[i];
+                      let x;
+                      if (isRealtimeMode) {
+                        const now = new Date();
+                        const timeAgo = now - ts;
+                        x = 800 - (timeAgo / REALTIME_RANGE_MS) * 800;
+                      } else {
+                        x = (i / (serverData[port].cpu.length - 1)) * 800;
+                      }
                       const y = 250 - (cpu / maxCpu) * 230;
                       return `${x},${y}`;
-                    }).join(' ')}
+                    }).filter(p => !p.includes('NaN')).join(' ')}
                     
                     <!-- Area fill -->
                     <polygon 
@@ -575,9 +608,12 @@
                     
                     <!-- Data points -->
                     {#each serverData[port].cpu as cpu, i}
-                      {@const x = (i / (serverData[port].cpu.length - 1)) * 800}
+                      {@const ts = serverData[port].timestamps[i]}
+                      {@const x = isRealtimeMode ? (800 - ((new Date() - ts) / REALTIME_RANGE_MS) * 800) : (i / (serverData[port].cpu.length - 1)) * 800}
                       {@const y = 250 - (cpu / maxCpu) * 230}
-                      <circle cx={x} cy={y} r="4" fill={color.line} opacity="0.7" />
+                      {#if x >= 0 && x <= 800}
+                        <circle cx={x} cy={y} r="4" fill={color.line} opacity="0.7" />
+                      {/if}
                     {/each}
                   {/if}
                 {/each}
