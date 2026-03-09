@@ -17,10 +17,6 @@ class HARIMA:
         self.capacity = capacity_per_container
 
 
-    # -------------------------------------------------
-    # LOAD MODEL
-    # -------------------------------------------------
-
     def load(self):
 
         self.arima_model = joblib.load(f"{self.model_dir}/arima.pkl")
@@ -29,11 +25,6 @@ class HARIMA:
             f"{self.model_dir}/lstm_model.keras",
             compile=False
         )
-
-
-    # -------------------------------------------------
-    # PREPROCESSING (SAMA PERSIS SEPERTI TRAINING)
-    # -------------------------------------------------
 
     def aggregate_port(self, df):
 
@@ -70,12 +61,8 @@ class HARIMA:
             logger.error("Data series (%s) is not enough for window (%s)", len(series), self.window)
             raise ValueError("Not enough data for window")
 
+        self._last_series = series  # expose for research data collection
         return series
-
-
-    # -------------------------------------------------
-    # ARIMA STEP
-    # -------------------------------------------------
 
     def run_arima(self, series):
 
@@ -89,33 +76,20 @@ class HARIMA:
 
         return model_fit, residual
 
-
-    # -------------------------------------------------
-    # RESIDUAL FORECAST WITH LSTM
-    # -------------------------------------------------
-
     def forecast_residual_lstm(self, residual):
-
         residual_scaled = self.scaler.transform(
             residual.values.reshape(-1, 1)
         )
 
         last_window = residual_scaled[-self.window:]
-
         current_window = last_window.copy()
-
         residual_forecast_scaled = []
 
         for _ in range(self.horizon):
-
             X = current_window.reshape(1, self.window, 1)
-
             pred_scaled = self.lstm_model.predict(X, verbose=0)
-
             pred_value = pred_scaled[0, 0]
-
             residual_forecast_scaled.append(pred_value)
-
             current_window = np.append(
                 current_window[1:],
                 pred_value
@@ -131,32 +105,17 @@ class HARIMA:
 
         return residual_forecast
 
-
-    # -------------------------------------------------
-    # FINAL HYBRID FORECAST
-    # -------------------------------------------------
-
     def run_hybrid(self, df):
-
         series = self.preprocess(df)
-
         arima_applied, residual = self.run_arima(series)
-
         arima_forecast = arima_applied.forecast(steps=self.horizon)
-
         residual_forecast = self.forecast_residual_lstm(residual)
-
         hybrid_forecast = arima_forecast.values + residual_forecast
-
         return hybrid_forecast
-
-
-    # -------------------------------------------------
-    # CONTAINER CALCULATION
-    # -------------------------------------------------
 
     def compute_required_container(self, forecast):
 
+        print(forecast)
         required_per_step = np.ceil(
             forecast / self.capacity
         )
@@ -166,11 +125,6 @@ class HARIMA:
         )
 
         return required_per_step, final_required
-
-
-    # -------------------------------------------------
-    # PUBLIC METHOD
-    # -------------------------------------------------
 
     def predict(self, df):
 
@@ -183,7 +137,8 @@ class HARIMA:
         return {
             "forecast_rps": hybrid_forecast,
             "required_container_per_step": required_per_step,
-            "max_required_container": final_required
+            "max_required_container": final_required,
+            "resampled_series": self._last_series
         }
     
     def max_per_step(self, required, step):
