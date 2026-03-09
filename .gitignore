@@ -5,3 +5,8 @@ prescal/.env
 prescal/test
 traffic/build
 event/.env
+inference/venv
+inference/model
+inference/src/core/__pycache__
+inference/src/__pycache__
+inference/src/utils/__pycache__
