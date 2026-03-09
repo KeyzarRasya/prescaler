@@ -10,3 +10,6 @@ inference/model
 inference/src/core/__pycache__
 inference/src/__pycache__
 inference/src/utils/__pycache__
+*.env
+*.log
+*.csv
