@@ -25,7 +25,7 @@ void send_request(void) {
 
     struct sockaddr_in target = {
         .sin_family = AF_INET,
-        .sin_port = htons(80)
+        .sin_port = htons(8080)
     };
     inet_pton(AF_INET, "127.0.0.1", &target.sin_addr);
     
